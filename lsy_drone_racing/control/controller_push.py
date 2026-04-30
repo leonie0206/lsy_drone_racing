@@ -288,7 +288,7 @@ class StateController(Controller):
 
         straight_boost = 1.0
         if upcoming_acc < 3.0:
-            straight_boost = 1.0 + 1.3 * (1.0 - (upcoming_acc / 4.0))
+            straight_boost = 1.0 + 1.4 * (1.0 - (upcoming_acc / 4.0))
 
         accel_factor = straight_boost / accel_penalty
 
