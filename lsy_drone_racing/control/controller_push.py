@@ -76,7 +76,7 @@ class StateController(Controller):
 
         self._dt = 1.0 / self._freq
         self._z_error_integral = 0.0
-        self._ki_z = 0.8
+        self._ki_z = 0.0
 
         self._current_pos = np.zeros(3)
         self._path_history = []
@@ -192,8 +192,8 @@ class StateController(Controller):
             acc_samples = self._des_acc_spline(t_samples)
             max_acc = np.max(np.linalg.norm(acc_samples, axis=1))
 
-            if max_acc > 4.0:
-                self._t_total += 0.2
+            if max_acc > 5.0:
+                self._t_total += 0.15
             else:
                 break
 
