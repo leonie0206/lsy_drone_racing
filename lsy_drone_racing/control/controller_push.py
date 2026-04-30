@@ -27,7 +27,7 @@ _OBSTACLE_MARGIN = 0.250
 
 # Nominal track layout
 _NOMINAL_GATE_POS = np.array(
-    [[0.5, 0.25, 0.7], [1.05, 0.75, 1.2], [-1.0, -0.25, 0.7], [0.0, -0.75, 1.2]], dtype=np.float64
+    [[0.5, 0.25, 0.7], [1.05, 0.75, 1.2], [-1.0, -0.25, 0.65], [0.0, -0.75, 1.2]], dtype=np.float64
 )
 _NOMINAL_GATE_YAW = np.array([-0.78, 2.35, 3.14, 0.0], dtype=np.float64)
 
@@ -57,8 +57,8 @@ class StateController(Controller):
 
         self._add_gate_waypoints(gate_id=0)
         self._add_gate_waypoints(gate_id=1, intermediate_point=[1.3, -0.15, 0.9])
-        self._add_gate_waypoints(gate_id=2, intermediate_point=[-0.5, -0.05, 0.7])
-        self._waypoints_list.append([-1.2, -0.2, 1.2])  # Intermediate
+        self._add_gate_waypoints(gate_id=2, intermediate_point=[-0.5, -0.05, 0.5])
+        self._waypoints_list.append([-1.2, -0.2, 1.18])  # Intermediate
 
         self._add_gate_waypoints(gate_id=3, intermediate_point=[-0.6, -0.2, 1.2])
         self._waypoints_list.append([0.5, -0.75, 1.2])  # End
@@ -286,9 +286,9 @@ class StateController(Controller):
         error_factor = np.clip(1.0 - (pos_error / 1.5), 0.2, 1.0)
         accel_penalty = 1.0 + (0.012 * upcoming_acc * current_speed)
 
-        straight_boost = 1.0
+        straight_boost = 1.3
         if upcoming_acc < 3.0:
-            straight_boost = 1.0 + 1.3 * (1.0 - (upcoming_acc / 4.0))
+            straight_boost = 1.0 + 1.42 * (1.1 - (upcoming_acc / 5.0))
 
         accel_factor = straight_boost / accel_penalty
 
