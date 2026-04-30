@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 _REPLAN_THRESHOLD = 0.05
-_GATE_MARGIN = 0.20
+_GATE_MARGIN = 0.160
 _OBSTACLE_MARGIN = 0.250
 
 # Nominal track layout
@@ -47,9 +47,7 @@ class StateController(Controller):
         """Initialization of the controller."""
         super().__init__(obs, info, config)
         self._freq = config.env.freq
-        # in __init__
-        self._t_total_base = 6.0
-        self._t_total = self._t_total_base
+        self._t_total = 6
 
         self._waypoints_list = []
         self._gate_indices = {}
@@ -119,7 +117,6 @@ class StateController(Controller):
     def _build_spline(self) -> None:
         """Build spline with collision avoidance and acceleration limits."""
         # Prune tight waypoint clusters
-        self._t_total = self._t_total_base
         wps = [self._waypoints[0].copy()]
         for i in range(1, len(self._waypoints)):
             if np.linalg.norm(self._waypoints[i] - wps[-1]) > 0.15 or i == len(self._waypoints) - 1:
@@ -183,7 +180,7 @@ class StateController(Controller):
         total_distance = cum_distances[-1]
 
         # Enforce max acceleration by extending trajectory time if needed
-        max_retries = 30
+        max_retries = 10
         for attempt in range(max_retries):
             t_wps = (cum_distances / total_distance) * self._t_total
 
@@ -195,7 +192,7 @@ class StateController(Controller):
             acc_samples = self._des_acc_spline(t_samples)
             max_acc = np.max(np.linalg.norm(acc_samples, axis=1))
 
-            if max_acc > 5.0:
+            if max_acc > 4.0:
                 self._t_total += 0.2
             else:
                 break
@@ -326,7 +323,6 @@ class StateController(Controller):
     def episode_callback(self) -> None:
         """Reset trajectory state for new episode."""
         self._t_track = 0.0
-        self._t_total = self._t_total_base
         self._finished = False
         self._waypoints = self._base_waypoints.copy()
         self._replanned_gates = set()
