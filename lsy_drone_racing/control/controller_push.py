@@ -192,7 +192,7 @@ class StateController(Controller):
             acc_samples = self._des_acc_spline(t_samples)
             max_acc = np.max(np.linalg.norm(acc_samples, axis=1))
 
-            if max_acc > 3.0:
+            if max_acc > 4.0:
                 self._t_total += 0.2
             else:
                 break
