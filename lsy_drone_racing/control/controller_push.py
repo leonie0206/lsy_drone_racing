@@ -27,7 +27,7 @@ _OBSTACLE_MARGIN = 0.250
 
 # Nominal track layout
 _NOMINAL_GATE_POS = np.array(
-    [[0.5, 0.25, 0.7], [1.05, 0.75, 1.18], [-1.0, -0.25, 0.65], [0.0, -0.75, 1.2]], dtype=np.float64
+    [[0.5, 0.25, 0.7], [1.05, 0.75, 1.19], [-1.0, -0.25, 0.65], [0.0, -0.75, 1.2]], dtype=np.float64
 )
 _NOMINAL_GATE_YAW = np.array([-0.78, 2.35, 3.14, 0.0], dtype=np.float64)
 
