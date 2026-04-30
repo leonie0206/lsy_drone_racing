@@ -286,9 +286,9 @@ class StateController(Controller):
         error_factor = np.clip(1.0 - (pos_error / 1.5), 0.2, 1.0)
         accel_penalty = 1.0 + (0.012 * upcoming_acc * current_speed)
 
-        straight_boost = 1.3
+        straight_boost = 1.4
         if upcoming_acc < 3.0:
-            straight_boost = 1.0 + 1.42 * (1.1 - (upcoming_acc / 5.0))
+            straight_boost = 1.0 + 1.42 * (1.0 - (upcoming_acc / 5.0))
 
         accel_factor = straight_boost / accel_penalty
 
