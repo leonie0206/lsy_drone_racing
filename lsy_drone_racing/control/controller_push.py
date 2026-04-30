@@ -47,7 +47,7 @@ class StateController(Controller):
         """Initialization of the controller."""
         super().__init__(obs, info, config)
         self._freq = config.env.freq
-        self._t_total = 6
+        self._t_total = 5.6
 
         self._waypoints_list = []
         self._gate_indices = {}
@@ -256,7 +256,8 @@ class StateController(Controller):
     def compute_control(
         self, obs: dict[str, NDArray[np.floating]], info: dict | None = None
     ) -> NDArray[np.floating]:
-        """Compute desired state with dynamic tracking and altitude compensation."""
+        """Compute desired state with dynamic tracking,
+          altitude compensation, and optimal yaw."""
         if "pos" in obs:
             self._path_history.append(obs["pos"].copy())
             if len(self._path_history) > 500:
@@ -284,11 +285,11 @@ class StateController(Controller):
 
         # Boost progress on straightaways, slow on curves
         error_factor = np.clip(1.0 - (pos_error / 1.5), 0.2, 1.0)
-        accel_penalty = 1.0 + (0.012 * upcoming_acc * current_speed)
+        accel_penalty = 1.0 + (0.006 * upcoming_acc * current_speed)
 
-        straight_boost = 1.4
+        straight_boost = 1.3
         if upcoming_acc < 3.0:
-            straight_boost = 1.0 + 1.42 * (1.0 - (upcoming_acc / 5.0))
+            straight_boost = 1.0 + 1.2 * (1.0 - (upcoming_acc / 5.0))
 
         accel_factor = straight_boost / accel_penalty
 
@@ -304,9 +305,21 @@ class StateController(Controller):
         compensated_des_pos = des_pos.copy()
         compensated_des_pos[2] += self._ki_z * self._z_error_integral
 
+        # --- NEW: OPTIMAL YAW CALCULATION (Nose-Forward Flight) ---
+        speed_sq = des_vel[0]**2 + des_vel[1]**2
+        
+        # Only adjust yaw if the drone is actually moving fast enough to have a heading
+        if speed_sq > 0.01:
+            des_yaw = np.arctan2(des_vel[1], des_vel[0])
+            des_yaw_rate = ((des_vel[0] * des_acc[1] - des_vel[1] * des_acc[0]) / speed_sq ) * 1.2
+        else:
+            des_yaw = 0.0
+            des_yaw_rate = 0.0
+
+        # Replace the first two 0.0s in the array with our computed yaw and yaw rate
         return np.concatenate(
-            (compensated_des_pos, des_vel, des_acc, np.zeros(4)), dtype=np.float32
-        )
+            (compensated_des_pos, des_vel, des_acc,
+              np.array([des_yaw, des_yaw_rate, 0.0, 0.0])), dtype=np.float32)
 
     def step_callback(
         self,
