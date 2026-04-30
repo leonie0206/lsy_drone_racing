@@ -47,7 +47,7 @@ class StateController(Controller):
         """Initialization of the controller."""
         super().__init__(obs, info, config)
         self._freq = config.env.freq
-        self._t_total = 5.92
+        self._t_total = 5.88
 
         self._waypoints_list = []
         self._gate_indices = {}
@@ -180,7 +180,7 @@ class StateController(Controller):
         total_distance = cum_distances[-1]
 
         # Enforce max acceleration by extending trajectory time if needed
-        max_retries = 10
+        max_retries = 20
         for attempt in range(max_retries):
             t_wps = (cum_distances / total_distance) * self._t_total
 
@@ -284,11 +284,11 @@ class StateController(Controller):
 
         # Boost progress on straightaways, slow on curves
         error_factor = np.clip(1.0 - (pos_error / 1.5), 0.2, 1.0)
-        accel_penalty = 1.0 + (0.00800 * upcoming_acc * current_speed)
+        accel_penalty = 1.0 + (0.007500 * upcoming_acc * current_speed)
 
         straight_boost = 1.4
         if upcoming_acc < 3.0:
-            straight_boost = 1.0 + 1.44 * (1.0 - (upcoming_acc / 5.2))
+            straight_boost = 1.0 + 1.46 * (1.0 - (upcoming_acc / 5.2))
 
         accel_factor = straight_boost / accel_penalty
 
