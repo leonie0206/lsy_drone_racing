@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 _REPLAN_THRESHOLD = 0.05
-_GATE_MARGIN = 0.160
+_GATE_MARGIN = 0.220
 _OBSTACLE_MARGIN = 0.250
 
 # Nominal track layout
