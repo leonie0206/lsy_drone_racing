@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 _REPLAN_THRESHOLD = 0.05
-_GATE_MARGIN = 0.220
+_GATE_MARGIN = 0.20
 _OBSTACLE_MARGIN = 0.250
 
 # Nominal track layout
@@ -288,7 +288,7 @@ class StateController(Controller):
 
         straight_boost = 1.0
         if upcoming_acc < 3.0:
-            straight_boost = 1.0 + 1.34 * (1.0 - (upcoming_acc / 4.0))
+            straight_boost = 1.0 + 1.3 * (1.0 - (upcoming_acc / 4.0))
 
         accel_factor = straight_boost / accel_penalty
 
