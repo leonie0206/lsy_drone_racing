@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import scipy
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
+from crazyflow.sim.visualize import draw_line, draw_points
 from drone_models.core import load_params
 from drone_models.so_rpy import symbolic_dynamics_euler
 from drone_models.utils.rotation import ang_vel2rpy_rates
@@ -23,6 +24,7 @@ from scipy.spatial.transform import Rotation as R
 from lsy_drone_racing.control import Controller
 
 if TYPE_CHECKING:
+    from crazyflow import Sim
     from numpy.typing import NDArray
 
 
@@ -198,7 +200,7 @@ class AttitudeMPC(Controller):
                 [0.5, -0.75, 1.2],
             ]
         )
-        self._t_total = 15  # s
+        self._t_total = 8  # s
         t = np.linspace(0, self._t_total, len(waypoints))
         self._des_pos_spline = CubicSpline(t, waypoints)
         self._des_vel_spline = self._des_pos_spline.derivative()
@@ -224,6 +226,9 @@ class AttitudeMPC(Controller):
         self._config = config
         self._finished = False
 
+        self._planned_trajectory = None
+        self._path_history = []
+
     def compute_control(
         self, obs: dict[str, NDArray[np.floating]], info: dict | None = None
     ) -> NDArray[np.floating]:
@@ -238,6 +243,12 @@ class AttitudeMPC(Controller):
             The orientation as roll, pitch, yaw angles, and the collective thrust
             [r_des, p_des, y_des, t_des] as a numpy array.
         """
+        if "pos" in obs:
+            self._path_history.append(obs["pos"].copy())
+            # Keep history from getting too long and lagging the sim
+            if len(self._path_history) > 100:
+                self._path_history.pop(0)
+
         i = min(self._tick, self._tick_max)
         if self._tick >= self._tick_max:
             self._finished = True
@@ -277,6 +288,10 @@ class AttitudeMPC(Controller):
         self._acados_ocp_solver.solve()
         u0 = self._acados_ocp_solver.get(0, "u")
 
+        self._planned_trajectory = np.array(
+            [self._acados_ocp_solver.get(j, "x")[0:3] for j in range(self._N + 1)]
+        )
+
         return u0
 
     def step_callback(
@@ -296,3 +311,24 @@ class AttitudeMPC(Controller):
     def episode_callback(self):
         """Reset the integral error."""
         self._tick = 0
+
+    def render_callback(self, sim: Sim) -> None:
+        """Visualize the overall track, drone history, and MPC prediction."""
+        # 1. Draw the reference waypoints (Green Line)
+        # This shows the entire track the MPC is trying to follow
+        draw_line(sim, self._waypoints_pos, rgba=(0.0, 1.0, 0.0, 0.5))
+
+        # 2. Draw actual flight path history (Blue Line)
+        if len(self._path_history) > 1:
+            # Downsample by 5 (like in your reference) for performance
+            path_array = np.array(self._path_history[::5])
+            draw_line(sim, path_array, rgba=(0.0, 0.5, 1.0, 1.0))
+
+        # 3. Draw the MPC Planned Horizon (Red Line & Dots)
+        if self._planned_trajectory is not None:
+            # Draw a line connecting the planned states
+            draw_line(sim, self._planned_trajectory, rgba=(1.0, 0.0, 0.0, 1.0))
+
+            # Draw dots at each prediction step to see the spacing (speed)
+            # Tighter dots = MPC plans to move slowly; Spread out = MPC plans to move fast
+            draw_points(sim, self._planned_trajectory, rgba=(1.0, 0.5, 0.0, 1.0), size=0.02)

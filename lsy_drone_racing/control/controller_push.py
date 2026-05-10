@@ -1,4 +1,3 @@
-
 """Fast trajectory controller for Level 2 with Graphical Debugging.
 
 Uses a cubic spline with dynamic time allocation (Progress Variable).
