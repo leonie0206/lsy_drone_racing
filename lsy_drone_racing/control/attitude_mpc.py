@@ -288,6 +288,7 @@ class AttitudeMPC(Controller):
         self._acados_ocp_solver.solve()
         u0 = self._acados_ocp_solver.get(0, "u")
 
+        # visualization of the planned trajectory. This is the predicted states for the next N steps.
         self._planned_trajectory = np.array(
             [self._acados_ocp_solver.get(j, "x")[0:3] for j in range(self._N + 1)]
         )
@@ -320,8 +321,8 @@ class AttitudeMPC(Controller):
 
         # 2. Draw actual flight path history (Blue Line)
         if len(self._path_history) > 1:
-            # Downsample by 5 (like in your reference) for performance
-            path_array = np.array(self._path_history[::5])
+            # Downsample by 3 for performance
+            path_array = np.array(self._path_history[::3])
             draw_line(sim, path_array, rgba=(0.0, 0.5, 1.0, 1.0))
 
         # 3. Draw the MPC Planned Horizon (Red Line & Dots)
