@@ -10,6 +10,7 @@ from scipy.interpolate import CubicSpline
 
 class TrajectoryPlanner:
     """Trajectory planner for drone racing."""
+
     def __init__(self, waypoints: np.ndarray, t_total: float, freq: int):
         """Initialize the trajectory planner."""
         t = np.linspace(0, t_total, len(waypoints))
@@ -30,7 +31,7 @@ class TrajectoryPlanner:
         np.ndarray,  # yaw_ref (N,)
         np.ndarray,  # pos_e (3,)
         np.ndarray,  # vel_e (3,)
-        float,       # yaw_e scalar
+        float,  # yaw_e scalar
     ]:
         """Returns the reference slice for the prediction horizon."""
         i = min(current_tick, max(0, self.max_ticks - horizon))

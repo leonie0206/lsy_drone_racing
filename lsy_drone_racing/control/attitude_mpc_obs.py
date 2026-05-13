@@ -135,20 +135,19 @@ def create_ocp_solver(
     # Set initial references. We will overwrite these later to track the trajectory
     ocp.cost.yref, ocp.cost.yref_e = np.zeros((ny,)), np.zeros((ny_e,))
 
-    # Set State Constraints (rpy < 30°) TODO: changed from 0.5 -> 0.6
-    ocp.constraints.lbx = np.array([-0.6, -0.6, -0.6])
-    ocp.constraints.ubx = np.array([0.6, 0.6, 0.6])
+    # Set State Constraints (rpy < 30°)
+    ocp.constraints.lbx = np.array([-0.5, -0.5, -0.5])
+    ocp.constraints.ubx = np.array([0.5, 0.5, 0.5])
     ocp.constraints.idxbx = np.array([3, 4, 5])
 
     # Set Input Constraints (rpy < 30°)
-    ocp.constraints.lbu = np.array([-0.6, -0.6, -0.6, parameters["thrust_min"] * 4])
-    ocp.constraints.ubu = np.array([0.6, 0.6, 0.6, parameters["thrust_max"] * 4])
+    ocp.constraints.lbu = np.array([-0.5, -0.5, -0.5, parameters["thrust_min"] * 4])
+    ocp.constraints.ubu = np.array([0.5, 0.5, 0.5, parameters["thrust_max"] * 4])
     ocp.constraints.idxbu = np.array([0, 1, 2, 3])
 
     # Set hard constraints (obstacles)
     nh = len(obs_manager.obstacles)
-    print(f"Number of obstacles: {nh}")
-    
+
     if nh > 0:
         # Path constraints
         ocp.constraints.lh = np.zeros(nh)
@@ -159,13 +158,13 @@ def create_ocp_solver(
         # Without these, ns_e remains 0 and causes your error
         ocp.constraints.lh_e = np.zeros(nh)
         ocp.constraints.uh_e = 1e9 * np.ones(nh)
-        ocp.constraints.idxsh_e = np.arange(nh) # Soften terminal constraints
+        ocp.constraints.idxsh_e = np.arange(nh)  # Soften terminal constraints
 
         # --- SLACK PENALTIES ---
         # Path penalties
-        ocp.cost.Zl = 1e5 * np.ones(nh)
+        ocp.cost.Zl = 1e8 * np.ones(nh)
         ocp.cost.Zu = np.zeros(nh)
-        ocp.cost.zl = 1e4 * np.ones(nh)
+        ocp.cost.zl = 1e6 * np.ones(nh)
         ocp.cost.zu = np.zeros(nh)
 
         # Terminal penalties (Now these have something to point to!)
@@ -181,7 +180,7 @@ def create_ocp_solver(
     ocp.solver_options.qp_solver = "FULL_CONDENSING_HPIPM"  # FULL_, PARTIAL_ ,_HPIPM, _QPOASES
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
     ocp.solver_options.integrator_type = "ERK"
-    ocp.solver_options.nlp_solver_type = "SQP_RTI"  # SQP, SQP_RTI
+    ocp.solver_options.nlp_solver_type = "SQP"  # SQP, SQP_RTI
     ocp.solver_options.tol = 1e-6
 
     ocp.solver_options.qp_solver_cond_N = N
@@ -217,13 +216,14 @@ class AttitudeMPC(Controller):
             config: The configuration of the environment.
         """
         super().__init__(obs, info, config)
-        self._N = 30
+        self._N = 25
         self._dt = 1 / config.env.freq
         self._T_HORIZON = self._N * self._dt
 
-
         self.obs_manager = ObstacleManager(safety_margin=0.12)
         self.obs_manager.initialize_nominal_track()
+        self._observed_gate_positions: np.ndarray | None = None
+        self._observed_obstacle_positions: np.ndarray | None = None
 
         # Use the shared trajectory planner so all trajectory tasks remain consistent.
         waypoints = np.array(
@@ -240,7 +240,7 @@ class AttitudeMPC(Controller):
                 [0.5, -0.75, 1.2],
             ]
         )
-        self._trajectory_planner = TrajectoryPlanner(waypoints, t_total=6.0, freq=config.env.freq)
+        self._trajectory_planner = TrajectoryPlanner(waypoints, t_total=8.0, freq=config.env.freq)
 
         self.drone_params = load_params("so_rpy", config.sim.drone_model)
         self._acados_ocp_solver, self._ocp = create_ocp_solver(
@@ -258,6 +258,32 @@ class AttitudeMPC(Controller):
 
         self._planned_trajectory = None
         self._path_history = []
+
+    def _refresh_obstacle_gate_positions(self, obs: dict[str, NDArray[np.floating]]) -> None:
+        """Update the obstacle manager when new gate or obstacle positions are observed."""
+        if "gates_pos" in obs:
+            gates_pos = np.asarray(obs["gates_pos"], dtype=np.float64)
+            gates_rpy = None
+            if "gates_rpy" in obs:
+                gates_rpy = np.asarray(obs["gates_rpy"], dtype=np.float64)
+            elif "gates_quat" in obs:
+                gates_rpy = R.from_quat(np.asarray(obs["gates_quat"], dtype=np.float64)).as_euler(
+                    "xyz"
+                )
+
+            if self._observed_gate_positions is None or not np.allclose(
+                gates_pos, self._observed_gate_positions, atol=1e-8
+            ):
+                self.obs_manager.update_gate_positions(gates_pos, gates_rpy)
+                self._observed_gate_positions = gates_pos.copy()
+
+        if "obstacles_pos" in obs:
+            obs_pos = np.asarray(obs["obstacles_pos"], dtype=np.float64)
+            if self._observed_obstacle_positions is None or not np.allclose(
+                obs_pos, self._observed_obstacle_positions, atol=1e-8
+            ):
+                self.obs_manager.update_obstacle_positions(obs_pos)
+                self._observed_obstacle_positions = obs_pos.copy()
 
     def compute_control(
         self, obs: dict[str, NDArray[np.floating]], info: dict | None = None
@@ -279,6 +305,8 @@ class AttitudeMPC(Controller):
             if len(self._path_history) > 100:
                 self._path_history.pop(0)
 
+        self._refresh_obstacle_gate_positions(obs)
+
         if self._tick >= self._tick_max:
             self._finished = True
 
@@ -290,8 +318,7 @@ class AttitudeMPC(Controller):
         self._acados_ocp_solver.set(0, "ubx", x0)
 
         pos_ref, vel_ref, yaw_ref, pos_e, vel_e, yaw_e = self._trajectory_planner.get_references(
-            current_tick=self._tick,
-            horizon=self._N,
+            current_tick=self._tick, horizon=self._N
         )
 
         # Setting state reference
@@ -319,7 +346,7 @@ class AttitudeMPC(Controller):
         self._acados_ocp_solver.set(self._N, "y_ref", yref_e)
 
         # Solving problem and getting first input
-        self._acados_ocp_solver.solve()     #TODO: check solver status and handle infeasibility
+        self._acados_ocp_solver.solve()  # TODO: check solver status and handle infeasibility
         u0 = self._acados_ocp_solver.get(0, "u")
 
         # visualization of the planned trajectory
@@ -367,7 +394,21 @@ class AttitudeMPC(Controller):
             draw_line(sim, self._planned_trajectory, rgba=(1.0, 0.0, 0.0, 1.0))
 
             # Draw dots at each prediction step to see the spacing (speed)
-            # Tighter dots = MPC plans to move slowly; Spread out = MPC plans to move fast
-            draw_points(sim, self._planned_trajectory, rgba=(1.0, 0.5, 0.0, 1.0), size=0.02)
+            # Red dots indicate horizon points inside obstacle safety margins.
+            collision_mask = self.obs_manager.points_in_obstacles(
+                self._planned_trajectory, margin=self.obs_manager.safety_margin
+            )
 
-        
+            if np.any(collision_mask):
+                draw_points(
+                    sim,
+                    self._planned_trajectory[collision_mask],
+                    rgba=(1.0, 0.0, 0.0, 1.0),
+                    size=0.02,
+                )
+
+            safe_mask = ~collision_mask
+            if np.any(safe_mask):
+                draw_points(
+                    sim, self._planned_trajectory[safe_mask], rgba=(1.0, 0.5, 0.0, 1.0), size=0.02
+                )
