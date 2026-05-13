@@ -288,7 +288,7 @@ class AttitudeMPC(Controller):
         self._acados_ocp_solver.solve()
         u0 = self._acados_ocp_solver.get(0, "u")
 
-        # visualization of the planned trajectory. This is the predicted states for the next N steps.
+        # visualization of the planned trajectory
         self._planned_trajectory = np.array(
             [self._acados_ocp_solver.get(j, "x")[0:3] for j in range(self._N + 1)]
         )
