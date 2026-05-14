@@ -490,3 +490,4 @@ class AttitudeMPC(Controller):
         self._planned_gates_pos = _NOMINAL_GATE_POS.copy()
         self._planned_obstacles_pos = _NOMINAL_OBSTACLE_POS.copy()
         self._build_spline()
+
