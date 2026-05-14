@@ -18,10 +18,10 @@ from crazyflow.sim.visualize import draw_line, draw_points
 from drone_models.core import load_params
 from drone_models.so_rpy import symbolic_dynamics_euler
 from drone_models.utils.rotation import ang_vel2rpy_rates
-from scipy.interpolate import CubicSpline
 from scipy.spatial.transform import Rotation as R
 
 from lsy_drone_racing.control import Controller
+from lsy_drone_racing.control.trajectory_planner_challenge import TrajectoryPlannerChallenge
 
 if TYPE_CHECKING:
     from crazyflow import Sim
@@ -181,36 +181,12 @@ class AttitudeMPC(Controller):
             config: The configuration of the environment.
         """
         super().__init__(obs, info, config)
-        self._N = 25
+        self._N = 50
         self._dt = 1 / config.env.freq
         self._T_HORIZON = self._N * self._dt
 
-        # Same waypoints as in the trajectory controller. Determined by trial and error.
-        waypoints = np.array(
-            [
-                [-1.5, 0.75, 0.05],
-                [-1.0, 0.55, 0.4],
-                [0.3, 0.35, 0.7],
-                [1.3, -0.15, 0.9],
-                [0.85, 0.85, 1.2],
-                [-0.5, -0.05, 0.7],
-                [-1.2, -0.2, 0.8],
-                [-1.2, -0.2, 1.2],
-                [-0.0, -0.7, 1.2],
-                [0.5, -0.75, 1.2],
-            ]
-        )
-        self._t_total = 8  # s
-        t = np.linspace(0, self._t_total, len(waypoints))
-        self._des_pos_spline = CubicSpline(t, waypoints)
-        self._des_vel_spline = self._des_pos_spline.derivative()
-        self._waypoints_pos = self._des_pos_spline(
-            np.linspace(0, self._t_total, int(config.env.freq * self._t_total))
-        )
-        self._waypoints_vel = self._des_vel_spline(
-            np.linspace(0, self._t_total, int(config.env.freq * self._t_total))
-        )
-        self._waypoints_yaw = self._waypoints_pos[:, 0] * 0
+        # Use challenge planner: gate-threading + obstacle repulsion + online replanning
+        self._trajectory_planner = TrajectoryPlannerChallenge(freq=config.env.freq)
 
         self.drone_params = load_params("so_rpy", config.sim.drone_model)
         self._acados_ocp_solver, self._ocp = create_ocp_solver(
@@ -222,7 +198,7 @@ class AttitudeMPC(Controller):
         self._ny_e = self._nx
 
         self._tick = 0
-        self._tick_max = len(self._waypoints_pos) - 1 - self._N
+        self._tick_max = self._trajectory_planner.max_ticks - self._N
         self._config = config
         self._finished = False
 
@@ -249,6 +225,12 @@ class AttitudeMPC(Controller):
             if len(self._path_history) > 100:
                 self._path_history.pop(0)
 
+        # Online replanning when gate/obstacle positions are updated
+        new_tick = self._trajectory_planner.check_and_replan(obs, self._tick)
+        if new_tick is not None:
+            self._tick = new_tick
+            self._tick_max = self._trajectory_planner.max_ticks - self._N
+
         i = min(self._tick, self._tick_max)
         if self._tick >= self._tick_max:
             self._finished = True
@@ -260,12 +242,16 @@ class AttitudeMPC(Controller):
         self._acados_ocp_solver.set(0, "lbx", x0)
         self._acados_ocp_solver.set(0, "ubx", x0)
 
+        pos_ref, vel_ref, yaw_ref, pos_e, vel_e, yaw_e = self._trajectory_planner.get_references(
+            current_tick=self._tick, horizon=self._N
+        )
+
         # Setting state reference
         yref = np.zeros((self._N, self._ny))
-        yref[:, 0:3] = self._waypoints_pos[i : i + self._N]  # position
+        yref[:, 0:3] = pos_ref  # position
         # zero roll, pitch
-        yref[:, 5] = self._waypoints_yaw[i : i + self._N]  # yaw
-        yref[:, 6:9] = self._waypoints_vel[i : i + self._N]  # velocity
+        yref[:, 5] = yaw_ref  # yaw
+        yref[:, 6:9] = vel_ref  # velocity
         # zero drpy
 
         # Setting input reference (index > self._nx)
@@ -277,10 +263,10 @@ class AttitudeMPC(Controller):
 
         # Setting final state reference
         yref_e = np.zeros((self._ny_e))
-        yref_e[0:3] = self._waypoints_pos[i + self._N]  # position
+        yref_e[0:3] = pos_e  # position
         # zero roll, pitch
-        yref_e[5] = self._waypoints_yaw[i + self._N]  # yaw
-        yref_e[6:9] = self._waypoints_vel[i + self._N]  # velocity
+        yref_e[5] = yaw_e  # yaw
+        yref_e[6:9] = vel_e  # velocity
         # zero drpy
         self._acados_ocp_solver.set(self._N, "y_ref", yref_e)
 
@@ -312,24 +298,5 @@ class AttitudeMPC(Controller):
     def episode_callback(self):
         """Reset the integral error."""
         self._tick = 0
-
-    def render_callback(self, sim: Sim) -> None:
-        """Visualize the overall track, drone history, and MPC prediction."""
-        # 1. Draw the reference waypoints (Green Line)
-        # This shows the entire track the MPC is trying to follow
-        draw_line(sim, self._waypoints_pos, rgba=(0.0, 1.0, 0.0, 0.5))
-
-        # 2. Draw actual flight path history (Blue Line)
-        if len(self._path_history) > 1:
-            # Downsample by 3 for performance
-            path_array = np.array(self._path_history[::3])
-            draw_line(sim, path_array, rgba=(0.0, 0.5, 1.0, 1.0))
-
-        # 3. Draw the MPC Planned Horizon (Red Line & Dots)
-        if self._planned_trajectory is not None:
-            # Draw a line connecting the planned states
-            draw_line(sim, self._planned_trajectory, rgba=(1.0, 0.0, 0.0, 1.0))
-
-            # Draw dots at each prediction step to see the spacing (speed)
-            # Tighter dots = MPC plans to move slowly; Spread out = MPC plans to move fast
-            draw_points(sim, self._planned_trajectory, rgba=(1.0, 0.5, 0.0, 1.0), size=0.02)
+        self._trajectory_planner.reset()
+        self._tick_max = self._trajectory_planner.max_ticks - self._N
