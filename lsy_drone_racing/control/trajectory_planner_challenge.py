@@ -16,9 +16,9 @@ import numpy as np
 from scipy.interpolate import CubicSpline
 
 # ── Nominal track layout (from level2.toml) ───────────────────────────────────
-_REPLAN_THRESHOLD = 0.03   # m — minimum shift to trigger a replan
+_REPLAN_THRESHOLD = 0.05   # m — minimum shift to trigger a replan
 _GATE_MARGIN = 0.160       # m — pre/post waypoint distance from gate centre
-_OBSTACLE_MARGIN = 0.300   # m — minimum horizontal clearance from obstacle axis
+_OBSTACLE_MARGIN = 0.250   # m — minimum horizontal clearance from obstacle axis
 
 _NOMINAL_GATE_POS = np.array(
     [[0.5, 0.25, 0.7], [1.05, 0.75, 1.2], [-1.0, -0.25, 0.65], [0.0, -0.75, 1.2]],
