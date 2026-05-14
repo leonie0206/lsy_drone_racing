@@ -16,9 +16,9 @@ import numpy as np
 from scipy.interpolate import CubicSpline
 
 # ── Nominal track layout (from level2.toml) ───────────────────────────────────
-_REPLAN_THRESHOLD = 0.05   # m — minimum shift to trigger a replan
+_REPLAN_THRESHOLD = 0.03   # m — minimum shift to trigger a replan
 _GATE_MARGIN = 0.160       # m — pre/post waypoint distance from gate centre
-_OBSTACLE_MARGIN = 0.250   # m — minimum horizontal clearance from obstacle axis
+_OBSTACLE_MARGIN = 0.300   # m — minimum horizontal clearance from obstacle axis
 
 _NOMINAL_GATE_POS = np.array(
     [[0.5, 0.25, 0.7], [1.05, 0.75, 1.2], [-1.0, -0.25, 0.65], [0.0, -0.75, 1.2]],
@@ -46,7 +46,7 @@ class TrajectoryPlannerChallenge:
         - ``reset()``                             : call from episode_callback
     """
 
-    def __init__(self, freq: int, t_total: float = 6.0):
+    def __init__(self, freq: int, t_total: float = 7):
         """Build gate-threaded trajectory from nominal track layout.
 
         Args:
@@ -59,14 +59,14 @@ class TrajectoryPlannerChallenge:
         self._waypoints_list: list = []
         self._gate_indices: dict[int, tuple[int, int]] = {}
 
-        self._waypoints_list.append([-1.5, 0.75, 0.05])       # Start
-        self._waypoints_list.append([-1.0, 0.55, 0.4])        # Intermediate
+        self._waypoints_list.append([-1.5, 0.75, 0.05])            # Start
+        self._waypoints_list.append([-1.0, 0.55, 0.4])             # Intermediate
         self._add_gate_waypoints(gate_id=0)
-        self._add_gate_waypoints(gate_id=1, intermediate_point=[1.3, -0.15, 0.9])
-        self._add_gate_waypoints(gate_id=2, intermediate_point=[-0.5, -0.05, 0.5])
-        self._waypoints_list.append([-1.2, -0.2, 1.18])       # Intermediate
+        self._add_gate_waypoints(gate_id=1, intermediate_point=[1.3, -0.15, 0.88])
+        self._add_gate_waypoints(gate_id=2, intermediate_point=[-0.5, -0.05, 0.45])
+        self._waypoints_list.append([-1.2, -0.2, 1.18])            # Intermediate
         self._add_gate_waypoints(gate_id=3, intermediate_point=[-0.6, -0.2, 1.2])
-        self._waypoints_list.append([0.5, -0.75, 1.2])        # End
+        self._waypoints_list.append([0.5, -0.75, 1.2])             # End
 
         self._base_waypoints = np.array(self._waypoints_list, dtype=np.float64)
         self._waypoints = self._base_waypoints.copy()
@@ -119,7 +119,7 @@ class TrajectoryPlannerChallenge:
         1. Prune waypoints closer than 15 cm to avoid spline oscillation.
         2. Iteratively push spline away from obstacles (up to 4 passes).
         3. Remove newly-clustered waypoints (30 cm threshold).
-        4. Extend t_total until max spline acceleration <= 5 m/s².
+        4. Extend t_total until max spline acceleration <= 4 m/s².
         5. Resample waypoints_pos, waypoints_vel, waypoints_yaw at freq * t_total points.
         6. Update max_ticks.
         """
@@ -176,7 +176,7 @@ class TrajectoryPlannerChallenge:
         cum_dist = np.concatenate(([0.0], np.cumsum(distances)))
         total_dist = cum_dist[-1]
 
-        # Step 4 — acceleration cap: extend t_total until max_acc <= 5 m/s²
+        # Step 4 — acceleration cap: extend t_total until max_acc <= 4 m/s²
         for _ in range(10):
             t_wps = (cum_dist / total_dist) * self._t_total
             self._des_pos_spline = CubicSpline(t_wps, active_wps)
@@ -184,7 +184,7 @@ class TrajectoryPlannerChallenge:
             acc_spline = self._des_pos_spline.derivative(nu=2)
             t_samples = np.linspace(0, self._t_total, 200)
             max_acc = float(np.max(np.linalg.norm(acc_spline(t_samples), axis=1)))
-            if max_acc > 5.0:
+            if max_acc > 4.0:
                 self._t_total += 0.15
             else:
                 break
@@ -294,7 +294,7 @@ class TrajectoryPlannerChallenge:
 
     def reset(self) -> None:
         """Reset all replanning state for a new episode."""
-        self._t_total = 6.0
+        self._t_total = 6.00
         self._waypoints = self._base_waypoints.copy()
         self._replanned_gates = set()
         self._planned_gates_pos = _NOMINAL_GATE_POS.copy()

@@ -181,7 +181,7 @@ class AttitudeMPC(Controller):
             config: The configuration of the environment.
         """
         super().__init__(obs, info, config)
-        self._N = 50
+        self._N = 25
         self._dt = 1 / config.env.freq
         self._T_HORIZON = self._N * self._dt
 
@@ -300,3 +300,4 @@ class AttitudeMPC(Controller):
         self._tick = 0
         self._trajectory_planner.reset()
         self._tick_max = self._trajectory_planner.max_ticks - self._N
+
