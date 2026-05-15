@@ -289,31 +289,39 @@ class ObstacleManager:
             )
             self._nominal_obstacle_indices.append(obs_idx)
 
-    def get_collision_expressions(self, x_sym: ca.MX) -> ca.MX:
-        """Generates symbolic CasADi expressions for the solver."""
+    def get_obstacle_parameters(self) -> np.ndarray:
+        """Flattens current obstacle coordinates into a 1D array for the solver."""
+        params = []
+        for obs in self.obstacles:
+            params.extend(obs["p1"])
+            params.extend(obs["p2"])
+        return np.array(params, dtype=np.float64)
+
+    def get_collision_expressions(self, x_sym: ca.MX, p_sym: ca.MX) -> ca.MX:
+        """Generates symbolic CasADi expressions using dynamic parameters."""
         constraints = []
         drone_pos = x_sym[0:3]
 
-        for obs in self.obstacles:
-            p1 = ca.MX(obs["p1"])
-            p2 = ca.MX(obs["p2"])
+        for i, obs in enumerate(self.obstacles):
+            # Extract dynamic p1 and p2 from the parameter vector
+            # Each obstacle takes up 6 slots (3 for p1, 3 for p2)
+            idx = i * 6
+            p1 = p_sym[idx : idx + 3]
+            p2 = p_sym[idx + 3 : idx + 6]
+
             r_total = obs["r"] + self.safety_margin
 
             if obs["type"] == "sphere":
-                # Formula: dist^2 - r^2 >= 0
                 dist_sq = ca.sumsqr(drone_pos - p1)
                 constraints.append(dist_sq - r_total**2)
 
             else:  # Cylinder / Capsule
-                # Formula: Distance from point to line segment
                 v = p2 - p1
                 w = drone_pos - p1
 
-                # Project w onto v, clamped between 0 and 1
                 t = ca.dot(w, v) / (ca.sumsqr(v) + 1e-9)
                 t_clamped = ca.fmax(0, ca.fmin(1, t))
 
-                # Closest point on the segment to the drone
                 closest_point = p1 + t_clamped * v
                 dist_sq = ca.sumsqr(drone_pos - closest_point)
                 constraints.append(dist_sq - r_total**2)

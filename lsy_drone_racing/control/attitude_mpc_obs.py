@@ -11,6 +11,7 @@ from __future__ import annotations  # Python 3.10 type hints
 
 from typing import TYPE_CHECKING
 
+import casadi as ca
 import numpy as np
 import scipy
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
@@ -53,10 +54,14 @@ def create_acados_model(parameters: dict, obs_manager: ObstacleManager) -> Acado
     model.u = U
 
     if len(obs_manager.obstacles) > 0:
-        model.con_h_expr = obs_manager.get_collision_expressions(X)
+        # Create a symbolic parameter vector: 6 values (p1_xyz, p2_xyz) per obstacle
+        num_obs = len(obs_manager.obstacles)
+        p_sym = ca.MX.sym("p_obs", num_obs * 6)
+        model.p = p_sym  # Register parameter in the model
 
-        # Terminal constraints (for node N)
-        model.con_h_expr_e = obs_manager.get_collision_expressions(X)
+        # Pass the parameter vector to your expression builder
+        model.con_h_expr = obs_manager.get_collision_expressions(X, p_sym)
+        model.con_h_expr_e = obs_manager.get_collision_expressions(X, p_sym)
 
     return model
 
@@ -94,7 +99,7 @@ def create_ocp_solver(
         [
             50.0,  # pos
             50.0,  # pos
-            400.0,  # pos
+            200.0,  # pos
             1.0,  # rpy
             1.0,  # rpy
             1.0,  # rpy
@@ -162,9 +167,9 @@ def create_ocp_solver(
 
         # --- SLACK PENALTIES ---
         # Path penalties
-        ocp.cost.Zl = 1e8 * np.ones(nh)
+        ocp.cost.Zl = 6e4 * np.ones(nh)
         ocp.cost.Zu = np.zeros(nh)
-        ocp.cost.zl = 1e6 * np.ones(nh)
+        ocp.cost.zl = 1e4 * np.ones(nh)
         ocp.cost.zu = np.zeros(nh)
 
         # Terminal penalties (Now these have something to point to!)
@@ -173,6 +178,10 @@ def create_ocp_solver(
         ocp.cost.zl_e = 1e3 * np.ones(nh)
         ocp.cost.zu_e = np.zeros(nh)
 
+        # Initialize the parameter values in the OCP
+        initial_params = obs_manager.get_obstacle_parameters()
+        ocp.parameter_values = initial_params
+
     # We have to set x0 even though we will overwrite it later on.
     ocp.constraints.x0 = np.zeros((nx))
 
@@ -180,14 +189,14 @@ def create_ocp_solver(
     ocp.solver_options.qp_solver = "FULL_CONDENSING_HPIPM"  # FULL_, PARTIAL_ ,_HPIPM, _QPOASES
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
     ocp.solver_options.integrator_type = "ERK"
-    ocp.solver_options.nlp_solver_type = "SQP"  # SQP, SQP_RTI
+    ocp.solver_options.nlp_solver_type = "SQP_RTI"  # SQP, SQP_RTI
     ocp.solver_options.tol = 1e-6
 
     ocp.solver_options.qp_solver_cond_N = N
     ocp.solver_options.qp_solver_warm_start = 1
 
-    ocp.solver_options.qp_solver_iter_max = 20
-    ocp.solver_options.nlp_solver_max_iter = 50
+    ocp.solver_options.qp_solver_iter_max = 40
+    ocp.solver_options.nlp_solver_max_iter = 100
 
     # set prediction horizon
     ocp.solver_options.tf = Tf
@@ -216,7 +225,7 @@ class AttitudeMPC(Controller):
             config: The configuration of the environment.
         """
         super().__init__(obs, info, config)
-        self._N = 25
+        self._N = 30
         self._dt = 1 / config.env.freq
         self._T_HORIZON = self._N * self._dt
 
@@ -240,7 +249,7 @@ class AttitudeMPC(Controller):
                 [0.5, -0.75, 1.2],
             ]
         )
-        self._trajectory_planner = TrajectoryPlanner(waypoints, t_total=8.0, freq=config.env.freq)
+        self._trajectory_planner = TrajectoryPlanner(waypoints, t_total=7.2, freq=config.env.freq)
 
         self.drone_params = load_params("so_rpy", config.sim.drone_model)
         self._acados_ocp_solver, self._ocp = create_ocp_solver(
@@ -321,6 +330,9 @@ class AttitudeMPC(Controller):
             current_tick=self._tick, horizon=self._N
         )
 
+        # Save the immediate tracking target for visualization
+        self._current_tracking_point = pos_ref[0].copy()
+
         # Setting state reference
         yref = np.zeros((self._N, self._ny))
         yref[:, 0:3] = pos_ref
@@ -345,8 +357,14 @@ class AttitudeMPC(Controller):
         # zero drpy
         self._acados_ocp_solver.set(self._N, "y_ref", yref_e)
 
+        current_obs_params = self.obs_manager.get_obstacle_parameters()
+        for j in range(self._N + 1):
+            self._acados_ocp_solver.set(j, "p", current_obs_params)
+
         # Solving problem and getting first input
-        self._acados_ocp_solver.solve()  # TODO: check solver status and handle infeasibility
+        status = self._acados_ocp_solver.solve()  # check solver status and handle infeasibility
+        if status != 0:
+            print(f"Acados solver returned with status {status} at tick {self._tick}")
         u0 = self._acados_ocp_solver.get(0, "u")
 
         # visualization of the planned trajectory
@@ -378,6 +396,16 @@ class AttitudeMPC(Controller):
         """Visualize the overall track, drone history, and MPC prediction."""
         # 1. Draw the reference waypoints (Green Line)
         # This shows the entire track the MPC is trying to follow
+        
+        # 4. Draw the current tracking target (Bright Green Dot)
+        if hasattr(self, "_current_tracking_point"):
+            draw_points(
+                sim, 
+                self._current_tracking_point.reshape(1, 3), 
+                rgba=(0.0, 1.0, 0.0, 1.0), 
+                size=0.03
+            )
+
         draw_line(sim, self._trajectory_planner.waypoints_pos, rgba=(0.0, 1.0, 0.5, 0.5))
         # Draw the obstacles (Red Transparent Capsules)
         self.obs_manager.render(sim)
@@ -404,11 +432,11 @@ class AttitudeMPC(Controller):
                     sim,
                     self._planned_trajectory[collision_mask],
                     rgba=(1.0, 0.0, 0.0, 1.0),
-                    size=0.02,
+                    size=0.01,
                 )
 
             safe_mask = ~collision_mask
             if np.any(safe_mask):
                 draw_points(
-                    sim, self._planned_trajectory[safe_mask], rgba=(1.0, 0.5, 0.0, 1.0), size=0.02
+                    sim, self._planned_trajectory[safe_mask], rgba=(1.0, 0.5, 0.0, 1.0), size=0.01
                 )
