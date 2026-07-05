@@ -3,7 +3,7 @@
 Q_c: 10
 Q_l: 100
 R_u: 8.00 # turn too high is -> starts really slow
-mu: 0.3
+mu: 0.31
 R_T: 50.00
 Z_l: 4e+03
 z_l: 3e+03
