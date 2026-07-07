@@ -268,7 +268,7 @@ class AttitudeMPC(Controller):
         start_pos = np.array(obs["pos"], dtype=np.float64)
 
         if self.USE_PMM_PLANNER:
-            v_max = 3.5
+            v_max = 4.0
             tail_extension = max(0.5, v_max * self._T_HORIZON + 0.5)
             self._trajectory = PointMassPlanner(
                 start_pos=start_pos,
@@ -276,7 +276,7 @@ class AttitudeMPC(Controller):
                 gate_rpys=gate_rpys,
                 start_vel=np.array(obs["vel"], dtype=np.float64),
                 obstacle_manager=self._obstacle_manager.snapshot(),
-                u_max=16.0,
+                u_max=20.0,
                 v_max=v_max,
                 n_vel_samples=600,  # offline initial plan: more samples -> better global line
                 tail_extension=tail_extension,
